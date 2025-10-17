@@ -1,0 +1,500 @@
+{\rtf1\ansi\ansicpg1252\deff0\nouicompat\deflang1036{\fonttbl{\f0\fnil\fcharset0 Calibri;}{\f1\fnil Calibri;}{\f2\fnil\fcharset1 Cambria Math;}{\f3\fnil\fcharset0 Cambria Math;}}
+{\*\generator Riched20 10.0.17134}{\*\mmathPr\mmathFont2\mwrapIndent1440 }\viewkind4\uc1 
+\pard\sa200\sl276\slmult1\f0\fs22\lang12 Schema Technique Et Base De Donn\'e9es - Plateforme Affiliation You Tube\par
+Sch\'e9ma technique & Base de donn\'e9es \f1\emdash  Plateforme d'affiliation (promotion YouTube)\par
+\par
+Document de r\f0\'e9f\'e9rence (MVP) \f1\emdash  d\f0\'e9crit l'architecture, mod\'e8les de donn\'e9es (PostgreSQL), endpoints API essentiels, r\'e8gles de calcul des commissions, et mesures anti-fraude.\par
+\par
+1) R\'e9sum\'e9 rapide\par
+\par
+Objectif : fournir une architecture propre et une base de donn\'e9es pr\'eate \'e0 l'emploi pour un MVP qui :\par
+\par
+Permet aux cr\'e9ateurs de lancer des campagnes (pack vues)\par
+\par
+G\'e9n\'e8re des liens uniques pour affili\'e9s\par
+\par
+Tracker les clics/vues qualifi\'e9es et calculer les commissions multi-niveaux\par
+\par
+Supporte paiements et retraits\par
+\par
+Base recommand\'e9e : PostgreSQL.\par
+\par
+2) Entit\'e9s principales (ER high-level)\par
+\par
+users (affili\'e9s, cr\'e9ateurs, admins)\par
+\par
+campaigns (campagnes payantes cr\'e9\'e9es par cr\'e9ateurs)\par
+\par
+affiliate_links (liens uniques li\'e9s \'e0 une campagne et un affili\'e9)\par
+\par
+clicks (clics/sessions via le lien)\par
+\par
+views (vues qualifi\'e9es \f1\emdash  valid\f0\'e9es par r\'e8gles anti-fraude)\par
+\par
+payouts (demandes de retrait et paiements)\par
+\par
+commissions (enregistrements des montants dus)\par
+\par
+referrals (cha\'eene de parrainage entre users)\par
+\par
+transactions (flux financiers internes)\par
+\par
+3) Sch\'e9ma SQL (Postgres) \f1\emdash  tables principales\par
+-- users\par
+-- campaigns\par
+CREATE TABLE campaigns (\par
+  id BIGSERIAL PRIMARY KEY,\par
+  creator_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\par
+  title TEXT,\par
+  video_url TEXT NOT NULL,\par
+  target_views BIGINT NOT NULL,\par
+  price_cents BIGINT NOT NULL, -- montant pay\f0\'e9 par le cr\'e9ateur en centimes\par
+  remaining_views BIGINT NOT NULL,\par
+  status TEXT DEFAULT 'active', -- active | paused | completed | cancelled\par
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\par
+);\par
+\par
+\par
+-- affiliate_links\par
+CREATE TABLE affiliate_links (\par
+  id BIGSERIAL PRIMARY KEY,\par
+  campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,\par
+  affiliate_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,\par
+  token TEXT NOT NULL UNIQUE, -- token g\'e9n\'e9r\'e9 (ex: 12-char)\par
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\par
+);\par
+\par
+\par
+-- clicks (raw events)\par
+CREATE TABLE clicks (\par
+  id BIGSERIAL PRIMARY KEY,\par
+  affiliate_link_id BIGINT REFERENCES affiliate_links(id) ON DELETE CASCADE,\par
+  ip INET,\par
+  user_agent TEXT,\par
+  referer TEXT,\par
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\par
+);\par
+\par
+\par
+-- views (vues qualifi\'e9es)\par
+CREATE TABLE views (\par
+  id BIGSERIAL PRIMARY KEY,\par
+  campaign_id BIGINT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,\par
+  affiliate_link_id BIGINT REFERENCES affiliate_links(id),\par
+  click_id BIGINT REFERENCES clicks(id),\par
+  duration_seconds INT,\par
+  country VARCHAR(8),\par
+  is_valid BOOLEAN DEFAULT FALSE,\par
+  validated_at TIMESTAMP WITH TIME ZONE,\par
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\par
+);\par
+\par
+\par
+-- commissions\par
+CREATE TABLE commissions (\par
+  id BIGSERIAL PRIMARY KEY,\par
+  view_id BIGINT NOT NULL REFERENCES views(id) ON DELETE CASCADE,\par
+  beneficiary_user_id BIGINT NOT NULL REFERENCES users(id),\par
+  amount_cents BIGINT NOT NULL,\par
+  level INT NOT NULL, -- 1,2,3 pour les niveaux d'affiliation\par
+  paid BOOLEAN DEFAULT FALSE,\par
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\par
+);\par
+\par
+\par
+-- payouts\par
+CREATE TABLE payouts (\par
+  id BIGSERIAL PRIMARY KEY,\par
+  user_id BIGINT NOT NULL REFERENCES users(id),\par
+  amount_cents BIGINT NOT NULL,\par
+  method TEXT, -- paypal | mobile_money | bank\par
+  status TEXT DEFAULT 'pending', -- pending | completed | failed\par
+  requested_at TIMESTAMP WITH TIME ZONE DEFAULT now(),\par
+  completed_at TIMESTAMP WITH TIME ZONE\par
+);\par
+\par
+\par
+-- transactions (internes)\par
+CREATE TABLE transactions (\par
+  id BIGSERIAL PRIMARY KEY,\par
+  user_id BIGINT REFERENCES users(id),\par
+  type TEXT NOT NULL, -- credit | debit | fee\par
+  amount_cents BIGINT NOT NULL,\par
+  metadata JSONB,\par
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()\par
+);\par
+4) Indexes & optimisations\par
+\par
+Index sur affiliate_links.token (unique) \f1\emdash  d\f0\'e9j\'e0.\par
+\par
+Index sur clicks(created_at) pour analytiques.\par
+\par
+Index composite views(campaign_id, created_at) pour reports.\par
+\par
+Index sur commissions(beneficiary_user_id, paid) pour paiements batch.\par
+\par
+5) Algorithme de tracking et validation des vues (MVP)\par
+\par
+L'utilisateur clique sur lien : /r/\{token\} \f2\u8594?\f0  serveur logge un click (IP, UA, referer) puis redirige vers video_url (YouTube) en ajoutant params UTM.\par
+\par
+Pour compter une "vue qualifi\'e9e" :\par
+\par
+Option A (simple) : track la page de destination (landing) que tu g\'e8res \f2\u8594?\f0  mesurer time on page >= X secondes (ex : 15s) => cr\'e9er view.\par
+\par
+Option B (robuste) : pixel JS + heartbeat -> toutes les 10s envoyer pings, valider si total >= threshold (ex : 30s) => marquer is_valid=true.\par
+\par
+D\'e9duplication & anti-fraude :\par
+\par
+Un seul view valid\'e9 par IP+affiliate+24h\par
+\par
+Bloquer User-Agent suspects (headless browsers)\par
+\par
+Rate-limit par IP (ex : 100 requ\'eates / minute)\par
+\par
+Heuristiques : dur\'e9e < 3s => invalide; trop nombreuses vues depuis m\'eame IP en court laps => suspicion.\par
+\par
+Apr\'e8s validation, cr\'e9er 1..N enregistrements commissions pour chaque niveau (1 = affiliate, 2 = referrer, 3 = referrer sup\'e9rieur) avec montant calcul\'e9.\par
+\par
+6) R\'e8gles de calcul des commissions (Exemple)\par
+\par
+Prix campagne : price_cents pour target_views.\par
+\par
+Co\'fbt par view = price_cents / target_views\par
+\par
+R\'e9partition : level1 = 50%, level2 = 15%, level3 = 5%, plateforme = rest (30%).\par
+\par
+Pseudo-code :\par
+\par
+const cpv = campaign.price_cents / campaign.target_views; // co\'fbt par view\par
+commLevel1 = Math.round(cpv * 0.50);\par
+commLevel2 = Math.round(cpv * 0.15);\par
+commLevel3 = Math.round(cpv * 0.05);\par
+platformShare = cpv - (commLevel1 + commLevel2 + commLevel3);\par
+\par
+Enregistrer une commission par niveau en liant view_id.\par
+\par
+7) Endpoints API essentiels (REST)\par
+\par
+POST /api/auth/register \f1\emdash  inscription\par
+\par
+POST /api/auth/login \emdash  login\par
+\par
+GET /r/\{token\} \emdash  redirection & cr\f0\'e9ation click\par
+\par
+POST /api/campaigns \f1\emdash  cr\f0\'e9er une campagne (creator)\par
+\par
+GET /api/campaigns/:id \f1\emdash  d\f0\'e9tail campagne\par
+\par
+POST /api/links \f1\emdash  cr\f0\'e9er lien affili\'e9 (affili\'e9 s'abonne \'e0 la campagne)\par
+\par
+GET /api/dashboard \f1\emdash  dashboard affili\f0\'e9 (vues, gains)\par
+\par
+POST /api/payouts \f1\emdash  demande retrait\par
+\par
+GET /api/admin/reports \emdash  rapports admin\par
+\par
+8) Paiements & flux financiers\par
+\par
+Acceptation des paiements cr\f0\'e9ateurs via Stripe/PayPal/MP.\par
+\par
+Lors du paiement d'une campagne, cr\'e9diter transactions (plateforme) et r\'e9duire remaining_views au fur et \'e0 mesure des vues valid\'e9es.\par
+\par
+P\'e9riode de retenue (hold) : ne pas payer imm\'e9diatement les commissions \f1\emdash  appliquer un d\f0\'e9lai (ex : 7 jours) pour d\'e9tecter fraudes.\par
+\par
+Payout batch : cron job quotidien qui regroupe commissions payables et cr\'e9e payouts.\par
+\par
+9) Anti-fraude & conformit\'e9\par
+\par
+KYC progressif pour affili\'e9s atteignant un seuil de gains.\par
+\par
+Syst\'e8me d'alerte pour pics d'activit\'e9.\par
+\par
+Logs d\'e9taill\'e9s (clicks, IP, UA) pour audits.\par
+\par
+Politique claire dans CGU : interdiction de bots, d'incitations payantes hors plateforme.\par
+\par
+Option de collaboration l\'e9gale : proposer outils marketing (templates) aux affili\'e9s pour promouvoir correctement.\par
+\par
+10) Monitoring & m\'e9triques\par
+\par
+Dashboard Prometheus + Grafana (API metrics, queue lengths, taux de validation vues).\par
+\par
+Alertes sur % de vues invalides > X%.\par
+\par
+11) Exemples de requ\'eates SQL utiles\par
+-- Vues valid\'e9es par campagne\par
+SELECT campaign_id, count(*) AS valid_views\par
+FROM views\par
+WHERE is_valid = true\par
+GROUP BY campaign_id;\par
+\par
+\par
+-- Commissions en attente pour user\par
+SELECT beneficiary_user_id, sum(amount_cents) FROM commissions\par
+WHERE beneficiary_user_id = $1 AND paid = false\par
+GROUP BY beneficiary_user_id;\par
+12) Roadmap technique court terme (MVP)\par
+\par
+Auth / users / campagne CRUD\par
+\par
+G\'e9n\'e9ration de liens, endpoint de redirection et enregistrement clicks\par
+\par
+Landing page + pixel JS pour mesurer dur\'e9e \f2\u8594?\f0  validation views\par
+\par
+Calcul commissions et dossier transactions\par
+\par
+Payouts manuels (admin) \f2\u8594?\f0  automatisation apr\'e8s test\par
+\par
+Tableau de bord affili\'e9 / cr\'e9ateur\par
+\par
+Renforcement anti-fraude, KYC, documentation l\'e9gale\par
+\par
+13) Prochaines actions (que je peux faire pour toi)\par
+\par
+G\'e9n\'e9rer les scripts SQL complets (DDL) pr\'eats \'e0 ex\'e9cuter\par
+\par
+R\'e9diger l'API spec OpenAPI (endpoints + sch\'e9mas)\par
+\par
+G\'e9n\'e9rer un MVP front-end (Next.js) et back-end (Node/Laravel) exemple\par
+\par
+Dis-moi laquelle de ces actions tu veux que je fasse maintenant, je la g\'e9n\'e8re tout de suite.\par
+\par
+Parfait \f1\emdash  j'ai pr\f0\'e9par\'e9 le sch\'e9ma technique complet + la base de donn\'e9es (MVP) et je l'ai plac\'e9 dans un document d\'e9di\'e9 que tu peux consulter maintenant.\par
+\par
+\par
+Script\f3  \f0 SQL\f3  \f0 DDL\f3  (\f0 Postgres\f3 )\f0\par
+\f3 -- === \f0 0\f3 . \f0 Pr\'e9\f3 -\f0 requis\par
+\f3 -- \f0 Connecte\f3 -\f0 toi\f3  \f0\'e0\f3  \f0 ta\f3  \f0 base\f3  \f0 Postgres\f3  \f0 et\f3  \f0 ex\'e9cute\f3  \f0 ce\f3  \f0 script\f3  \f0 en\f3  \f0 tant\f3  \f0 qu'utilisateur\f3  \f0 ayant\f3  \f0 les\f3  \f0 droits\f3  \f0 CREATE\f3 .\f0\par
+\par
+\f3 -- === \f0 1\f3 . \f0 Tables\f3  \f0 principales\par
+CREATE\f3  \f0 TABLE\f3  \f0 users\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 email\f3  \f0 TEXT\f3  \f0 UNIQUE\f3  \f0 NOT\f3  \f0 NULL\f3 ,\f0\par
+\f3   \f0 password\f3 _\f0 hash\f3  \f0 TEXT\f3  \f0 NOT\f3  \f0 NULL\f3 ,\f0\par
+\f3   \f0 role\f3  \f0 TEXT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 DEFAULT\f3  \f0 'affiliate'\f3 , -- \f0 affiliate\f3  | \f0 creator\f3  | \f0 admin\par
+\f3   \f0 display\f3 _\f0 name\f3  \f0 TEXT\f3 ,\f0\par
+\f3   \f0 country\f3  \f0 VARCHAR\f3 (\f0 8\f3 ),\f0\par
+\f3   \f0 balance\f3 _\f0 cents\f3  \f0 BIGINT\f3  \f0 DEFAULT\f3  \f0 0\f3 , -- \f0 solde\f3  \f0 interne\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 (),\f0\par
+\f3   \f0 kyc\f3 _\f0 status\f3  \f0 TEXT\f3  \f0 DEFAULT\f3  \f0 'pending'\f3  -- \f0 pending\f3  | \f0 verified\f3  | \f0 rejected\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 referrals\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 user\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 users\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 CASCADE\f3 ,\f0\par
+\f3   \f0 referrer\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 REFERENCES\f3  \f0 users\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 SET\f3  \f0 NULL\f3 ,\f0\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 (),\f0\par
+\f3   \f0 UNIQUE\f3 (\f0 user\f3 _\f0 id\f3 )\f0\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 campaigns\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 creator\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 users\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 CASCADE\f3 ,\f0\par
+\f3   \f0 title\f3  \f0 TEXT\f3 ,\f0\par
+\f3   \f0 video\f3 _\f0 url\f3  \f0 TEXT\f3  \f0 NOT\f3  \f0 NULL\f3 ,\f0\par
+\f3   \f0 target\f3 _\f0 views\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 CHECK\f3  (\f0 target\f3 _\f0 views\f3  > \f0 0\f3 ),\f0\par
+\f3   \f0 price\f3 _\f0 cents\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 CHECK\f3  (\f0 price\f3 _\f0 cents\f3  >= \f0 0\f3 ),\f0\par
+\f3   \f0 remaining\f3 _\f0 views\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3 ,\f0\par
+\f3   \f0 status\f3  \f0 TEXT\f3  \f0 DEFAULT\f3  \f0 'active'\f3 , -- \f0 active\f3  | \f0 paused\f3  | \f0 completed\f3  | \f0 cancelled\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 ()\f0\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 affiliate\f3 _\f0 links\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 campaign\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 campaigns\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 CASCADE\f3 ,\f0\par
+\f3   \f0 affiliate\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 users\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 CASCADE\f3 ,\f0\par
+\f3   \f0 token\f3  \f0 TEXT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 UNIQUE\f3 ,\f0\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 ()\f0\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 clicks\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 affiliate\f3 _\f0 link\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 REFERENCES\f3  \f0 affiliate\f3 _\f0 links\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 CASCADE\f3 ,\f0\par
+\f3   \f0 ip\f3  \f0 INET\f3 ,\f0\par
+\f3   \f0 user\f3 _\f0 agent\f3  \f0 TEXT\f3 ,\f0\par
+\f3   \f0 referer\f3  \f0 TEXT\f3 ,\f0\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 ()\f0\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 views\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 campaign\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 campaigns\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 CASCADE\f3 ,\f0\par
+\f3   \f0 affiliate\f3 _\f0 link\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 REFERENCES\f3  \f0 affiliate\f3 _\f0 links\f3 (\f0 id\f3 ),\f0\par
+\f3   \f0 click\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 REFERENCES\f3  \f0 clicks\f3 (\f0 id\f3 ),\f0\par
+\f3   \f0 duration\f3 _\f0 seconds\f3  \f0 INT\f3 ,\f0\par
+\f3   \f0 country\f3  \f0 VARCHAR\f3 (\f0 8\f3 ),\f0\par
+\f3   \f0 is\f3 _\f0 valid\f3  \f0 BOOLEAN\f3  \f0 DEFAULT\f3  \f0 FALSE\f3 ,\f0\par
+\f3   \f0 validated\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3 ,\f0\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 ()\f0\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 commissions\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 view\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 views\f3 (\f0 id\f3 ) \f0 ON\f3  \f0 DELETE\f3  \f0 CASCADE\f3 ,\f0\par
+\f3   \f0 beneficiary\f3 _\f0 user\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 users\f3 (\f0 id\f3 ),\f0\par
+\f3   \f0 amount\f3 _\f0 cents\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 CHECK\f3  (\f0 amount\f3 _\f0 cents\f3  >= \f0 0\f3 ),\f0\par
+\f3   \f0 level\f3  \f0 INT\f3  \f0 NOT\f3  \f0 NULL\f3 , -- \f0 1\f3 ,\f0 2\f3 ,\f0 3\par
+\f3   \f0 paid\f3  \f0 BOOLEAN\f3  \f0 DEFAULT\f3  \f0 FALSE\f3 ,\f0\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 ()\f0\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 payouts\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 user\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 REFERENCES\f3  \f0 users\f3 (\f0 id\f3 ),\f0\par
+\f3   \f0 amount\f3 _\f0 cents\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 CHECK\f3  (\f0 amount\f3 _\f0 cents\f3  > \f0 0\f3 ),\f0\par
+\f3   \f0 method\f3  \f0 TEXT\f3 , -- \f0 paypal\f3  | \f0 mobile\f3 _\f0 money\f3  | \f0 bank\par
+\f3   \f0 status\f3  \f0 TEXT\f3  \f0 DEFAULT\f3  \f0 'pending'\f3 , -- \f0 pending\f3  | \f0 completed\f3  | \f0 failed\par
+\f3   \f0 requested\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 (),\f0\par
+\f3   \f0 completed\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\par
+\f3 );\f0\par
+\par
+CREATE\f3  \f0 TABLE\f3  \f0 transactions\f3  (\f0\par
+\f3   \f0 id\f3  \f0 BIGSERIAL\f3  \f0 PRIMARY\f3  \f0 KEY\f3 ,\f0\par
+\f3   \f0 user\f3 _\f0 id\f3  \f0 BIGINT\f3  \f0 REFERENCES\f3  \f0 users\f3 (\f0 id\f3 ),\f0\par
+\f3   \f0 type\f3  \f0 TEXT\f3  \f0 NOT\f3  \f0 NULL\f3 , -- \f0 credit\f3  | \f0 debit\f3  | \f0 fee\par
+\f3   \f0 amount\f3 _\f0 cents\f3  \f0 BIGINT\f3  \f0 NOT\f3  \f0 NULL\f3 ,\f0\par
+\f3   \f0 metadata\f3  \f0 JSONB\f3 ,\f0\par
+\f3   \f0 created\f3 _\f0 at\f3  \f0 TIMESTAMPTZ\f3  \f0 DEFAULT\f3  \f0 now\f3 ()\f0\par
+\f3 );\f0\par
+\par
+\f3 -- === \f0 2\f3 . \f0 Indexes\f3  & \f0 optimisations\par
+CREATE\f3  \f0 INDEX\f3  \f0 idx\f3 _\f0 clicks\f3 _\f0 created\f3 _\f0 at\f3  \f0 ON\f3  \f0 clicks\f3  (\f0 created\f3 _\f0 at\f3 );\f0\par
+CREATE\f3  \f0 INDEX\f3  \f0 idx\f3 _\f0 views\f3 _\f0 campaign\f3 _\f0 created\f3 _\f0 at\f3  \f0 ON\f3  \f0 views\f3  (\f0 campaign\f3 _\f0 id\f3 , \f0 created\f3 _\f0 at\f3 );\f0\par
+CREATE\f3  \f0 INDEX\f3  \f0 idx\f3 _\f0 commissions\f3 _\f0 beneficiary\f3 _\f0 paid\f3  \f0 ON\f3  \f0 commissions\f3  (\f0 beneficiary\f3 _\f0 user\f3 _\f0 id\f3 , \f0 paid\f3 );\f0\par
+CREATE\f3  \f0 INDEX\f3  \f0 idx\f3 _\f0 campaigns\f3 _\f0 creator\f3  \f0 ON\f3  \f0 campaigns\f3  (\f0 creator\f3 _\f0 id\f3 );\f0\par
+CREATE\f3  \f0 INDEX\f3  \f0 idx\f3 _\f0 affiliate\f3 _\f0 links\f3 _\f0 affiliate\f3  \f0 ON\f3  \f0 affiliate\f3 _\f0 links\f3  (\f0 affiliate\f3 _\f0 id\f3 );\f0\par
+\par
+\f3 -- === \f0 3\f3 . \f0 Trigger\f3  \f0 PL\f3 /\f0 pgSQL\f3  : \f0 cr\'e9er\f3  \f0 commissions\f3  \f0 quand\f3  \f0 une\f3  \f0 view\f3  \f0 devient\f3  \f0 valide\par
+\f3 -- \f0 Hypoth\'e8ses\f3  \f0 de\f3  \f0 r\'e9partition\f3  : \f0 level1\f3  = \f0 50%\f3 , \f0 level2\f3  = \f0 15%\f3 , \f0 level3\f3  = \f0 5%\f3 , \f0 plateforme\f3  = \f0 reste\f3 .\f0\par
+\f3 -- \f0 Ne\f3  \f0 verse\f3  \f0 pas\f3  \f0 encore\f3  : \f0 commissions\f3 .\f0 paid\f3  = \f0 false\f3  ; \f0 un\f3  \f0 job\f3  \f0 batch\f3  \f0 fera\f3  \f0 les\f3  \f0 payouts\f3  \f0 apr\'e8s\f3  \f0 d\'e9lai\f3 .\f0\par
+\par
+CREATE\f3  \f0 OR\f3  \f0 REPLACE\f3  \f0 FUNCTION\f3  \f0 fn\f3 _\f0 create\f3 _\f0 commissions\f3 _\f0 on\f3 _\f0 view\f3 _\f0 validation\f3 () \f0 RETURNS\f3  \f0 TRIGGER\f3  \f0 AS\f3  \f0 $$\par
+DECLARE\par
+\f3   \f0 v\f3 _\f0 campaign\f3  \f0 RECORD\f3 ;\f0\par
+\f3   \f0 v\f3 _\f0 affiliate\f3 _\f0 id\f3  \f0 BIGINT\f3 ;\f0\par
+\f3   \f0 v\f3 _\f0 level2\f3 _\f0 id\f3  \f0 BIGINT\f3 ;\f0\par
+\f3   \f0 v\f3 _\f0 level3\f3 _\f0 id\f3  \f0 BIGINT\f3 ;\f0\par
+\f3   \f0 cpv\f3  \f0 NUMERIC\f3 ; -- \f0 co\'fbt\f3  \f0 par\f3  \f0 view\f3  \f0 en\f3  \f0 cents\f3  (\f0 peut\f3  \f0\'eatre\f3  \f0 d\'e9cimal\f3 )\f0\par
+\f3   \f0 comm1\f3  \f0 BIGINT\f3 ;\f0\par
+\f3   \f0 comm2\f3  \f0 BIGINT\f3 ;\f0\par
+\f3   \f0 comm3\f3  \f0 BIGINT\f3 ;\f0\par
+\f3   \f0 total\f3 _\f0 allocated\f3  \f0 BIGINT\f3 ;\f0\par
+BEGIN\par
+\f3   -- \f0 Ne\f3  \f0 rien\f3  \f0 faire\f3  \f0 si\f3  \f0 d\'e9j\'e0\f3  \f0 valid\'e9e\f3  \f0 avant\par
+\f3   \f0 IF\f3  (\f0 TG\f3 _\f0 OP\f3  = \f0 'UPDATE'\f3 ) \f0 AND\f3  (\f0 NEW\f3 .\f0 is\f3 _\f0 valid\f3  = \f0 TRUE\f3 ) \f0 AND\f3  (\f0 OLD\f3 .\f0 is\f3 _\f0 valid\f3  \f0 IS\f3  \f0 DISTINCT\f3  \f0 FROM\f3  \f0 TRUE\f3 ) \f0 THEN\par
+\par
+\f3     -- \f0 R\'e9cup\'e9rer\f3  \f0 campagne\par
+\f3     \f0 SELECT\f3  \f0 *\f3  \f0 INTO\f3  \f0 v\f3 _\f0 campaign\f3  \f0 FROM\f3  \f0 campaigns\f3  \f0 WHERE\f3  \f0 id\f3  = \f0 NEW\f3 .\f0 campaign\f3 _\f0 id\f3 ;\f0\par
+\f3     \f0 IF\f3  \f0 NOT\f3  \f0 FOUND\f3  \f0 THEN\par
+\f3       \f0 RAISE\f3  \f0 NOTICE\f3  \f0 'Campaign\f3  \f0 introuvable\f3 : \f0 %'\f3 , \f0 NEW\f3 .\f0 campaign\f3 _\f0 id\f3 ;\f0\par
+\f3       \f0 RETURN\f3  \f0 NEW\f3 ;\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     -- \f0 Calcul\f3  \f0 du\f3  \f0 co\'fbt\f3  \f0 par\f3  \f0 view\f3  (\f0 cpv\f3  \f0 en\f3  \f0 cents\f3 )\f0\par
+\f3     \f0 IF\f3  \f0 v\f3 _\f0 campaign\f3 .\f0 target\f3 _\f0 views\f3  <= \f0 0\f3  \f0 THEN\par
+\f3       \f0 RETURN\f3  \f0 NEW\f3 ;\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\f3     \f0 cpv\f3  := (\f0 v\f3 _\f0 campaign\f3 .\f0 price\f3 _\f0 cents\f3 ::\f0 NUMERIC\f3 ) / \f0 v\f3 _\f0 campaign\f3 .\f0 target\f3 _\f0 views\f3 ::\f0 NUMERIC\f3 ;\f0\par
+\par
+\f3     -- \f0 identifier\f3  \f0 affiliate\f3  (\f0 si\f3  \f0 view\f3  \f0 provient\f3  \f0 d'un\f3  \f0 link\f3 )\f0\par
+\f3     \f0 IF\f3  \f0 NEW\f3 .\f0 affiliate\f3 _\f0 link\f3 _\f0 id\f3  \f0 IS\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 THEN\par
+\f3       \f0 SELECT\f3  \f0 affiliate\f3 _\f0 id\f3  \f0 INTO\f3  \f0 v\f3 _\f0 affiliate\f3 _\f0 id\f3  \f0 FROM\f3  \f0 affiliate\f3 _\f0 links\f3  \f0 WHERE\f3  \f0 id\f3  = \f0 NEW\f3 .\f0 affiliate\f3 _\f0 link\f3 _\f0 id\f3 ;\f0\par
+\f3     \f0 ELSE\par
+\f3       \f0 v\f3 _\f0 affiliate\f3 _\f0 id\f3  := \f0 NULL\f3 ;\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     -- \f0 Si\f3  \f0 pas\f3  \f0 d'affili\'e9\f3  (\f0 trafic\f3  \f0 organique\f3  \f0 sans\f3  \f0 link\f3 ), \f0 on\f3  \f0 peut\f3  \f0 affecter\f3  \f0 seulement\f3  \f0\'e0\f3  \f0 la\f3  \f0 plateforme\f3  / \f0 creator\f3  ; \f0 ici\f3  \f0 on\f3  \f0 ignore\par
+\f3     \f0 IF\f3  \f0 v\f3 _\f0 affiliate\f3 _\f0 id\f3  \f0 IS\f3  \f0 NULL\f3  \f0 THEN\par
+\f3       -- \f0 Optionnel\f3  : \f0 log\f3  \f0 ou\f3  \f0 cr\'e9er\f3  \f0 commission\f3  \f0 pour\f3  \f0 creator\f3 /\f0 platform\f3  - \f0 pour\f3  \f0 MVP\f3  \f0 on\f3  \f0 ne\f3  \f0 cr\'e9e\f3  \f0 pas\f3  \f0 de\f3  \f0 commissions\f3 .\f0\par
+\f3       \f0 RETURN\f3  \f0 NEW\f3 ;\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     -- \f0 trouver\f3  \f0 referrer\f3  (\f0 niveau\f3  \f0 2\f3 ) \f0 et\f3  \f0 referrer\f3  \f0 sup\'e9rieur\f3  (\f0 niveau\f3  \f0 3\f3 ) \f0 via\f3  \f0 table\f3  \f0 referrals\par
+\f3     \f0 SELECT\f3  \f0 referrer\f3 _\f0 id\f3  \f0 INTO\f3  \f0 v\f3 _\f0 level2\f3 _\f0 id\f3  \f0 FROM\f3  \f0 referrals\f3  \f0 WHERE\f3  \f0 user\f3 _\f0 id\f3  = \f0 v\f3 _\f0 affiliate\f3 _\f0 id\f3  \f0 LIMIT\f3  \f0 1\f3 ;\f0\par
+\f3     \f0 IF\f3  \f0 v\f3 _\f0 level2\f3 _\f0 id\f3  \f0 IS\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 THEN\par
+\f3       \f0 SELECT\f3  \f0 referrer\f3 _\f0 id\f3  \f0 INTO\f3  \f0 v\f3 _\f0 level3\f3 _\f0 id\f3  \f0 FROM\f3  \f0 referrals\f3  \f0 WHERE\f3  \f0 user\f3 _\f0 id\f3  = \f0 v\f3 _\f0 level2\f3 _\f0 id\f3  \f0 LIMIT\f3  \f0 1\f3 ;\f0\par
+\f3     \f0 ELSE\par
+\f3       \f0 v\f3 _\f0 level3\f3 _\f0 id\f3  := \f0 NULL\f3 ;\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     -- \f0 calcul\f3  \f0 des\f3  \f0 montants\f3  (\f0 arrondis\f3 )\f0\par
+\f3     \f0 comm1\f3  := \f0 CEIL\f3 ((\f0 cpv\f3  \f0 *\f3  \f0 0\f3 .\f0 50\f3 )::\f0 NUMERIC\f3 ); -- \f0 niveau1\f3  \f0 50%\par
+\f3     \f0 comm2\f3  := \f0 CEIL\f3 ((\f0 cpv\f3  \f0 *\f3  \f0 0\f3 .\f0 15\f3 )::\f0 NUMERIC\f3 ); -- \f0 niveau2\f3  \f0 15%\par
+\f3     \f0 comm3\f3  := \f0 CEIL\f3 ((\f0 cpv\f3  \f0 *\f3  \f0 0\f3 .\f0 05\f3 )::\f0 NUMERIC\f3 ); -- \f0 niveau3\f3  \f0 5%\par
+\par
+\f3     -- \f0 garantir\f3  \f0 que\f3  \f0 la\f3  \f0 somme\f3  \f0 ne\f3  \f0 d\'e9passe\f3  \f0 pas\f3  \f0 cpv\f3  (\f0 on\f3  \f0 ajuste\f3  \f0 le\f3  \f0 comm1\f3  \f0 si\f3  \f0 besoin\f3 )\f0\par
+\f3     \f0 total\f3 _\f0 allocated\f3  := \f0 comm1\f3  + \f0 comm2\f3  + \f0 comm3\f3 ;\f0\par
+\f3     \f0 IF\f3  \f0 total\f3 _\f0 allocated\f3  > \f0 CEIL\f3 (\f0 cpv\f3 ) \f0 THEN\par
+\f3       \f0 comm1\f3  := \f0 GREATEST\f3 (\f0 0\f3 , \f0 comm1\f3  - (\f0 total\f3 _\f0 allocated\f3  - \f0 CEIL\f3 (\f0 cpv\f3 )));\f0\par
+\f3       \f0 total\f3 _\f0 allocated\f3  := \f0 comm1\f3  + \f0 comm2\f3  + \f0 comm3\f3 ;\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     -- \f0 Ins\'e9rer\f3  \f0 commission\f3  \f0 niveau\f3  \f0 1\f3  (\f0 affiliate\f3 )\f0\par
+\f3     \f0 INSERT\f3  \f0 INTO\f3  \f0 commissions\f3  (\f0 view\f3 _\f0 id\f3 , \f0 beneficiary\f3 _\f0 user\f3 _\f0 id\f3 , \f0 amount\f3 _\f0 cents\f3 , \f0 level\f3 , \f0 paid\f3 , \f0 created\f3 _\f0 at\f3 )\f0\par
+\f3     \f0 VALUES\f3  (\f0 NEW\f3 .\f0 id\f3 , \f0 v\f3 _\f0 affiliate\f3 _\f0 id\f3 , \f0 comm1\f3 , \f0 1\f3 , \f0 FALSE\f3 , \f0 now\f3 ());\f0\par
+\par
+\f3     -- \f0 Niveau\f3  \f0 2\f3  (\f0 si\f3  \f0 existe\f3 )\f0\par
+\f3     \f0 IF\f3  \f0 v\f3 _\f0 level2\f3 _\f0 id\f3  \f0 IS\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 THEN\par
+\f3       \f0 INSERT\f3  \f0 INTO\f3  \f0 commissions\f3  (\f0 view\f3 _\f0 id\f3 , \f0 beneficiary\f3 _\f0 user\f3 _\f0 id\f3 , \f0 amount\f3 _\f0 cents\f3 , \f0 level\f3 , \f0 paid\f3 , \f0 created\f3 _\f0 at\f3 )\f0\par
+\f3       \f0 VALUES\f3  (\f0 NEW\f3 .\f0 id\f3 , \f0 v\f3 _\f0 level2\f3 _\f0 id\f3 , \f0 comm2\f3 , \f0 2\f3 , \f0 FALSE\f3 , \f0 now\f3 ());\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     -- \f0 Niveau\f3  \f0 3\f3  (\f0 si\f3  \f0 existe\f3 )\f0\par
+\f3     \f0 IF\f3  \f0 v\f3 _\f0 level3\f3 _\f0 id\f3  \f0 IS\f3  \f0 NOT\f3  \f0 NULL\f3  \f0 THEN\par
+\f3       \f0 INSERT\f3  \f0 INTO\f3  \f0 commissions\f3  (\f0 view\f3 _\f0 id\f3 , \f0 beneficiary\f3 _\f0 user\f3 _\f0 id\f3 , \f0 amount\f3 _\f0 cents\f3 , \f0 level\f3 , \f0 paid\f3 , \f0 created\f3 _\f0 at\f3 )\f0\par
+\f3       \f0 VALUES\f3  (\f0 NEW\f3 .\f0 id\f3 , \f0 v\f3 _\f0 level3\f3 _\f0 id\f3 , \f0 comm3\f3 , \f0 3\f3 , \f0 FALSE\f3 , \f0 now\f3 ());\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     -- \f0 Optionnel\f3  : \f0 d\'e9cr\'e9menter\f3  \f0 remaining\f3 _\f0 views\f3  (\f0 atomiquement\f3 )\f0\par
+\f3     \f0 UPDATE\f3  \f0 campaigns\par
+\f3     \f0 SET\f3  \f0 remaining\f3 _\f0 views\f3  = \f0 GREATEST\f3 (\f0 0\f3 , \f0 remaining\f3 _\f0 views\f3  - \f0 1\f3 )\f0\par
+\f3     \f0 WHERE\f3  \f0 id\f3  = \f0 v\f3 _\f0 campaign\f3 .\f0 id\f3 ;\f0\par
+\par
+\f3     -- \f0 Marquer\f3  \f0 validated\f3 _\f0 at\f3  \f0 si\f3  \f0 non\f3  \f0 d\'e9j\'e0\f3  \f0 fait\par
+\f3     \f0 IF\f3  \f0 NEW\f3 .\f0 validated\f3 _\f0 at\f3  \f0 IS\f3  \f0 NULL\f3  \f0 THEN\par
+\f3       \f0 NEW\f3 .\f0 validated\f3 _\f0 at\f3  := \f0 now\f3 ();\f0\par
+\f3     \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3     \f0 RETURN\f3  \f0 NEW\f3 ;\f0\par
+\f3   \f0 END\f3  \f0 IF\f3 ;\f0\par
+\par
+\f3   \f0 RETURN\f3  \f0 NEW\f3 ;\f0\par
+END\f3 ;\f0\par
+$$\f3  \f0 LANGUAGE\f3  \f0 plpgsql\f3 ;\f0\par
+\par
+\par
+DROP\f3  \f0 TRIGGER\f3  \f0 IF\f3  \f0 EXISTS\f3  \f0 trg\f3 _\f0 view\f3 _\f0 validation\f3  \f0 ON\f3  \f0 views\f3 ;\f0\par
+CREATE\f3  \f0 TRIGGER\f3  \f0 trg\f3 _\f0 view\f3 _\f0 validation\par
+\f3   \f0 AFTER\f3  \f0 UPDATE\f3  \f0 OF\f3  \f0 is\f3 _\f0 valid\f3  \f0 ON\f3  \f0 views\par
+\f3   \f0 FOR\f3  \f0 EACH\f3  \f0 ROW\par
+\f3   \f0 EXECUTE\f3  \f0 FUNCTION\f3  \f0 fn\f3 _\f0 create\f3 _\f0 commissions\f3 _\f0 on\f3 _\f0 view\f3 _\f0 validation\f3 ();\f0\par
+\par
+\f3 -- === \f0 4\f3 . \f0 Vue\f3  \f0 utilitaire\f3  : \f0 totaux\f3  \f0 en\f3  \f0 attente\f3  \f0 par\f3  \f0 user\par
+CREATE\f3  \f0 OR\f3  \f0 REPLACE\f3  \f0 VIEW\f3  \f0 v\f3 _\f0 commissions\f3 _\f0 pending\f3  \f0 AS\par
+SELECT\f3  \f0 beneficiary\f3 _\f0 user\f3 _\f0 id\f3 , \f0 SUM\f3 (\f0 amount\f3 _\f0 cents\f3 ) \f0 AS\f3  \f0 pending\f3 _\f0 cents\f3 , \f0 COUNT\f3 (\f0 *\f3 ) \f0 AS\f3  \f0 pending\f3 _\f0 items\par
+FROM\f3  \f0 commissions\par
+WHERE\f3  \f0 paid\f3  = \f0 FALSE\par
+GROUP\f3  \f0 BY\f3  \f0 beneficiary\f3 _\f0 user\f3 _\f0 id\f3 ;\f0\par
+\par
+\f3 -- === \f0 5\f3 . \f0 Exemple\f3  : \f0 proc\'e9dure\f3  \f0 simple\f3  \f0 de\f3  \f0 payout\f3  \f0 batch\f3  (\f0 squelette\f3 )\f0\par
+\f3 -- \f0 Note\f3  : \f0 en\f3  \f0 production\f3 , \f0 utiliser\f3  \f0 job\f3  \f0 s\'e9curis\'e9\f3 , \f0 logs\f3  \f0 et\f3  \f0 gestion\f3  \f0 d'erreurs\f3 .\f0\par
+\f3 -- \f0 Ce\f3  \f0 script\f3  \f0 s\'e9lectionne\f3  \f0 utilisateurs\f3  \f0 avec\f3  \f0 commissions\f3  \f0 non\f3  \f0 pay\'e9es\f3 , \f0 cr\'e9e\f3  \f0 un\f3  \f0 payout\f3  \f0 et\f3  \f0 marque\f3  \f0 commissions\f3  \f0 comme\f3  \f0 paid\f3 =\f0 false\f3  -> \f0\'e0\f3  \f0 g\'e9rer\f3  \f0 avec\f3  \f0 prudence\f3 .\f0\par
+\par
+\f3 -- \f0 SELECT\f3  \f0 *\f3  \f0 FROM\f3  \f0 v\f3 _\f0 commissions\f3 _\f0 pending\f3  \f0 LIMIT\f3  \f0 10\f3 ; -- \f0 pour\f3  \f0 debugging\par
+\par
+\par
+Notes\f3  \f0 pratiques\f3  & \f0 recommandations\f3  (\f0 courtes\f3 )\f0\par
+\par
+Test\f3  \f0 local\f3  : \f0 lance\f3  \f0 le\f3  \f0 DDL\f3  \f0 dans\f3  \f0 une\f3  \f0 base\f3  \f0 de\f3  \f0 test\f3  \f0 et\f3  \f0 ins\'e8re\f3  \f0 des\f3  \f0 jeux\f3  \f0 de\f3  \f0 donn\'e9es\f3  (\f0 users\f3  / \f0 referrals\f3  / \f0 campaign\f3  / \f0 affiliate\f3 _\f0 links\f3 ) \f0 pour\f3  \f0 v\'e9rifier\f3  \f0 le\f3  \f0 trigger\f3 .\f0\par
+\par
+D\'e9lai\f3  \f0 de\f3  \f0 retenue\f3  (\f0 hold\f3 ) : \f0 avant\f3  \f0 de\f3  \f0 payer\f3 , \f0 attends\f3  \f0 par\f3  \f0 ex\f3 . \f0 7\f3  \f0 jours\f3  \f0 pour\f3  \f0 d\'e9tecter\f3  \f0 fraudes\f3  (\f0 impl\'e9mentation\f3  : \f0 Only\f3  \f0 mark\f3  \f0 paid\f3  = \f0 true\f3  \f0 apr\'e8s\f3  \f0 validation\f3  \f0 compl\'e9mentaire\f3  \f0 par\f3  \f0 batch\f3  \f0 job\f3 ).\f0\par
+\par
+Anti\f3 -\f0 fraude\f3  : \f0 ne\f3  \f0 te\f3  \f0 fie\f3  \f0 pas\f3  \f0 seulement\f3  \f0 au\f3  \f0 trigger\f3  \f2\emdash\f3  \f0 ajoute\f3  \f0 une\f3  \f0 pipeline\f3  \f0 de\f3  \f0 validation\f3  (\f0 jobs\f3  \f0 qui\f3  \f0 re\f3 -\f0 v\'e9rifient\f3  \f0 IP\f3 , \f0 user\f3 _\f0 agent\f3 , \f0 patterns\f3 ).\f0\par
+\par
+Logs\f3  & \f0 audits\f3  : \f0 conserve\f3  \f0 logs\f3  \f0 d\'e9taill\'e9s\f3  \f0 et\f3  \f0 garde\f3  \f0 champs\f3  \f0 metadata\f3  \f0 dans\f3  \f0 transactions\f3  \f0 pour\f3  \f0 tra\'e7abilit\'e9\f3 .\f0\par
+\par
+Scalabilit\'e9\f3  : \f0 pour\f3  \f0 gros\f3  \f0 trafic\f3 , \f0 utilise\f3  \f0 partitionnement\f3  (\f0 ex\f3 . \f0 partition\f3  \f0 by\f3  \f0 month\f3 ) \f0 sur\f3  \f0 views\f3  \f0 et\f3  \f0 clicks\f3 .\f0\par
+\par
+S\'e9curit\'e9\f3  : \f0 prot\'e8ge\f3  \f0 tokens\f3  \f0 de\f3  \f0 liens\f3  (\f0 g\'e9n\'e8re\f3  \f0 tokens\f3  \f0 robustes\f3 , \f0 non\f3  \f0 pr\'e9visibles\f3 ) ; \f0 limite\f3  \f0 nombre\f3  \f0 de\f3  \f0 vues\f3  \f0 validables\f3  \f0 depuis\f3  \f0 une\f3  \f0 m\'eame\f3  \f0 IP\f3  / \f0 jour\f3 .n\f0\lang12\par
+}
+ 

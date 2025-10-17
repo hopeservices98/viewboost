@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  postgres:
+    image: postgres:15
+    container_name: affiliation_postgres
+    environment:
+      POSTGRES_DB: affiliation_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/setup-db.sql:/docker-entrypoint-initdb.d/setup-db.sql
+    networks:
+      - affiliation_network
+
+  # Backend API
+  backend:
+    build: ./backend
+    container_name: affiliation_backend
+    environment:
+      DATABASE_URL: postgresql://postgres:password123@postgres:5432/affiliation_db
+      JWT_SECRET: your_super_secret_jwt_key_here
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      PORT: 5000
+      NODE_ENV: development
+    ports:
+      - "5000:5000"
+    depends_on:
+      - postgres
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    networks:
+      - affiliation_network
+    command: npm run dev
+
+  # Module IA (optionnel pour développement)
+  ai-engine:
+    build: ./ai-engine
+    container_name: affiliation_ai
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ./ai-engine:/app
+      - /app/node_modules
+    networks:
+      - affiliation_network
+
+  # Frontend (à ajouter plus tard)
+  # frontend:
+  #   build: ./frontend
+  #   container_name: affiliation_frontend
+  #   ports:
+  #     - "3000:3000"
+  #   depends_on:
+  #     - backend
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   networks:
+  #     - affiliation_network
+
+volumes:
+  postgres_data:
+
+networks:
+  affiliation_network:
+    driver: bridge
