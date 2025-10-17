@@ -1,5 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
-const aiEngine = require('../../ai-engine');
+// const aiEngine = require('../../ai-engine'); // Temporairement désactivé
 
 const prisma = new PrismaClient();
 

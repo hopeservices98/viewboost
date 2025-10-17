@@ -1,5 +1,5 @@
 const { PrismaClient } = require('@prisma/client');
-const aiEngine = require('../../ai-engine');
+// const aiEngine = require('../../ai-engine'); // Temporairement désactivé
 
 const prisma = new PrismaClient();
 
@@ -19,16 +19,8 @@ const advancedFraudDetection = async (req, res, next) => {
     // 3. Vérifications géographiques (si activé)
     const geoCheck = await performGeoCheck(clientIP);
 
-    // 4. IA avancée (si activé)
-    const aiAnalysis = process.env.USE_AI_VALIDATION === 'true'
-      ? await aiEngine.detectFraud({
-          ipAddress: clientIP,
-          userAgent,
-          referrer,
-          requestCount: behavioralAnalysis.requestCount,
-          timeWindow: behavioralAnalysis.timeWindow
-        })
-      : { isFraud: false, confidence: 0 };
+    // 4. IA avancée (temporairement désactivé)
+    const aiAnalysis = { isFraud: false, confidence: 0 };
 
     // Calculer score global de fraude
     const fraudScore = calculateFraudScore({
