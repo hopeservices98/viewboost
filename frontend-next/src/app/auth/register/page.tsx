@@ -52,7 +52,7 @@ export default function RegisterPage() {
       };
 
       const response = await authAPI.register(registerData);
-      const { user, token } = response.data;
+      const { token } = response.data;
 
       login({ accessToken: token });
       setSuccess(true);
@@ -62,9 +62,10 @@ export default function RegisterPage() {
         router.push('/dashboard');
       }, 1500);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur inscription:', error);
-      setError(error.response?.data?.error || 'Erreur lors de l\'inscription');
+      const err = error as { response?: { data?: { error?: string } } };
+      setError(err.response?.data?.error || 'Erreur lors de l&apos;inscription');
     } finally {
       setLoading(false);
     }

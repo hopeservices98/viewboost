@@ -5,7 +5,7 @@ import { useAuth } from '@/components/AuthProvider';
 import { Play, Users, DollarSign, Shield, Zap, BarChart3 } from 'lucide-react';
 
 export default function HomePage() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -44,7 +44,7 @@ export default function HomePage() {
               <span className="text-blue-600 block">avec l'intelligence artificielle</span>
             </h1>
             <p className="text-xl text-gray-600 mb-8 max-w-3xl mx-auto">
-              La plateforme d'affiliation YouTube la plus avancée avec détection de fraude IA,
+              La plateforme d&apos;affiliation YouTube la plus avancée avec détection de fraude IA,
               commissions multi-niveaux et tracking en temps réel.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -73,7 +73,7 @@ export default function HomePage() {
               Fonctionnalités puissantes
             </h2>
             <p className="text-lg text-gray-600">
-              Tout ce dont vous avez besoin pour réussir votre business d'affiliation
+              Tout ce dont vous avez besoin pour réussir votre business d&apos;affiliation
             </p>
           </div>
 
@@ -100,7 +100,7 @@ export default function HomePage() {
                 Commissions multi-niveaux
               </h3>
               <p className="text-gray-600">
-                Gagnez sur 3 niveaux : 50% + 15% + 5% avec votre réseau d'affiliés
+                Gagnez sur 3 niveaux : 50% + 15% + 5% avec votre réseau d&apos;affiliés
               </p>
             </div>
 
@@ -139,7 +139,7 @@ export default function HomePage() {
                 Réseau d'affiliés
               </h3>
               <p className="text-gray-600">
-                Construisez votre équipe d'affiliés et gagnez sur leurs performances
+                Construisez votre équipe d&apos;affiliés et gagnez sur leurs performances
               </p>
             </div>
 

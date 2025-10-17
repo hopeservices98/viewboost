@@ -4,26 +4,6 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from './AuthProvider';
 
-// Définition des types TypeScript pour l'utilisateur
-interface User {
-  id: string;
-  email: string;
-  username: string;
-  role: 'CREATOR' | 'AFFILIATE' | 'ADMIN';
-  balance?: number;
-  level?: string;
-  totalEarned?: number;
-  missionsCompleted?: number;
-  phoneNumber?: string;
-  createdAt?: string;
-  _count?: {
-    affiliateLinks: number;
-    commissions: number;
-    referrals: number;
-    campaigns: number;
-  };
-}
-
 // Type pour les statistiques utilisateur (optionnel)
 interface UserStats {
   affiliateLinks: number;

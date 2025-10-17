@@ -26,7 +26,7 @@ export default function LoginPage() {
 
     try {
       const response = await authAPI.login(formData);
-      const { user, token } = response.data;
+      const { token } = response.data;
 
       login({ accessToken: token });
       setSuccess(true);
@@ -36,9 +36,10 @@ export default function LoginPage() {
         router.push('/dashboard');
       }, 1500);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur connexion:', error);
-      setError(error.response?.data?.error || 'Erreur lors de la connexion');
+      const err = error as { response?: { data?: { error?: string } } };
+      setError(err.response?.data?.error || 'Erreur lors de la connexion');
     } finally {
       setLoading(false);
     }

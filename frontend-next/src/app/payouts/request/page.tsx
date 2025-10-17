@@ -54,7 +54,7 @@ export default function RequestPayoutPage() {
 
   useEffect(() => {
     loadUserData();
-  }, []);
+  }, [loadUserData]);
 
   const loadUserData = async () => {
     try {
@@ -120,9 +120,10 @@ export default function RequestPayoutPage() {
 
       alert('Demande de paiement envoyée avec succès !');
       router.push('/dashboard');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur demande paiement:', error);
-      alert(error.response?.data?.error || 'Erreur lors de la demande de paiement');
+      const err = error as { response?: { data?: { error?: string } } };
+      alert(err.response?.data?.error || 'Erreur lors de la demande de paiement');
     } finally {
       setSubmitting(false);
     }

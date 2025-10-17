@@ -69,7 +69,13 @@ export const campaignsAPI = {
     maxViews: number;
   }) => api.post('/campaigns', campaignData),
 
-  update: (id: string, campaignData: Partial<any>) =>
+  update: (id: string, campaignData: Partial<{
+    title: string;
+    description?: string;
+    youtubeUrl: string;
+    costPerView?: number;
+    maxViews: number;
+  }>) =>
     api.put(`/campaigns/${id}`, campaignData),
 
   delete: (id: string) => api.delete(`/campaigns/${id}`),
@@ -129,13 +135,26 @@ export const analyticsAPI = {
 
 // AI API
 export const aiAPI = {
-  getRecommendations: (userData: any) =>
+  getRecommendations: (userData: {
+    balance: number;
+    totalClicks: number;
+    totalViews: number;
+    affiliateLinksCount: number;
+    role: string;
+  }) =>
     api.post('/ai/recommendations', userData),
 
-  detectFraud: (data: any) =>
+  detectFraud: (data: {
+    clicks: Array<{ timestamp: string; ip: string; userAgent: string }>;
+    views: Array<{ timestamp: string; ip: string; userAgent: string }>;
+  }) =>
     api.post('/ai/fraud-detection', data),
 
-  getChatbotResponse: (message: string, context?: any) =>
+  getChatbotResponse: (message: string, context?: {
+    userRole: string;
+    balance: number;
+    recentActivity: string[];
+  }) =>
     api.post('/ai/chatbot', { message, context }),
 };
 

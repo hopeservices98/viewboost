@@ -14,8 +14,17 @@ interface DashboardStats {
   affiliateLinksCount: number;
 }
 
+interface Commission {
+  amount: number;
+}
+
+interface AffiliateLink {
+  clicks: number;
+  views: number;
+}
+
 export default function DashboardPage() {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, isAuthenticated } = useAuth();
   const router = useRouter();
   const [stats, setStats] = useState<DashboardStats>({
     balance: 0,
@@ -26,23 +35,12 @@ export default function DashboardPage() {
   });
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Redirection si non authentifié
-    if (!isAuthenticated) {
-      router.push('/auth/login');
-      return;
-    }
-
-    loadDashboardData();
-  }, [isAuthenticated, router]);
-
   const loadDashboardData = async () => {
     try {
       setLoading(true);
 
       // Load user profile for balance
       const profileResponse = await authAPI.getProfile();
-      const userData = profileResponse.data.user;
 
       // Load balance
       const balanceResponse = await commissionsAPI.getBalance();
@@ -50,16 +48,16 @@ export default function DashboardPage() {
 
       // Load commissions
       const commissionsResponse = await commissionsAPI.getUserCommissions();
-      const commissions = commissionsResponse.data.commissions || [];
+      const commissions: Commission[] = commissionsResponse.data.commissions || [];
 
       // Load affiliate links
       const linksResponse = await affiliateLinksAPI.getUserLinks();
-      const links = linksResponse.data.affiliateLinks || [];
+      const links: AffiliateLink[] = linksResponse.data.affiliateLinks || [];
 
       // Calculate stats
-      const totalCommissions = commissions.reduce((sum: number, comm: any) => sum + comm.amount, 0);
-      const totalClicks = links.reduce((sum: number, link: any) => sum + (link.clicks || 0), 0);
-      const totalViews = links.reduce((sum: number, link: any) => sum + (link.views || 0), 0);
+      const totalCommissions = commissions.reduce((sum: number, comm: Commission) => sum + comm.amount, 0);
+      const totalClicks = links.reduce((sum: number, link: AffiliateLink) => sum + (link.clicks || 0), 0);
+      const totalViews = links.reduce((sum: number, link: AffiliateLink) => sum + (link.views || 0), 0);
 
       setStats({
         balance: balance,
@@ -107,7 +105,7 @@ export default function DashboardPage() {
                 <h1 className="text-xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">
                   ViewBoost
                 </h1>
-                <p className="text-xs text-gray-500">Plateforme d'Affiliation IA</p>
+                <p className="text-xs text-gray-500">Plateforme d&apos;Affiliation IA</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -135,7 +133,7 @@ export default function DashboardPage() {
                   👋 Bonjour, {user?.username} !
                 </h1>
                 <p className="text-blue-100 text-lg">
-                  Bienvenue sur votre tableau de bord ViewBoost. Gérez vos revenus d'affiliation avec l'IA.
+                  Bienvenue sur votre tableau de bord ViewBoost. Gérez vos revenus d&apos;affiliation avec l&apos;IA.
                 </p>
                 <div className="mt-4 flex items-center space-x-4">
                   <div className="flex items-center space-x-2 bg-white/20 rounded-full px-4 py-2">
@@ -329,7 +327,7 @@ export default function DashboardPage() {
                       totalClicks: stats.totalClicks,
                       totalViews: stats.totalViews,
                       affiliateLinksCount: stats.affiliateLinksCount,
-                      role: user?.role
+                      role: user?.role || ''
                     });
                     alert(`🤖 Conseil IA: ${response.data.recommendation}`);
                   } catch (error) {

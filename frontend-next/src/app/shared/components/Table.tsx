@@ -3,7 +3,7 @@ import React from 'react';
 interface Column<T> {
   key: keyof T | string;
   header: string;
-  render?: (value: any, item: T) => React.ReactNode;
+  render?: (value: unknown, item: T) => React.ReactNode;
   className?: string;
 }
 
@@ -15,7 +15,7 @@ interface TableProps<T> {
   className?: string;
 }
 
-export function Table<T extends Record<string, any>>({
+export function Table<T extends Record<string, unknown>>({
   data,
   columns,
   loading = false,
@@ -62,7 +62,7 @@ export function Table<T extends Record<string, any>>({
                 const value = item[column.key as keyof T];
                 const renderedValue = column.render
                   ? column.render(value, item)
-                  : value;
+                  : String(value);
 
                 return (
                   <td

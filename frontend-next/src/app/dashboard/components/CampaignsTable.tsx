@@ -78,7 +78,7 @@ export const CampaignsTable: React.FC<CampaignsTableProps> = ({
     {
       key: 'actions',
       header: 'Actions',
-      render: (_: any, campaign: Campaign) => (
+      render: (_: unknown, campaign: Campaign) => (
         <div className="flex items-center space-x-2">
           <Link href={`/campaigns/${campaign.id}`}>
             <Button variant="secondary" size="sm">

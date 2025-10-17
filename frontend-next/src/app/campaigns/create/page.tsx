@@ -38,7 +38,7 @@ export default function CreateCampaignPage() {
     setError('');
 
     try {
-      const response = await campaignsAPI.create(formData);
+      await campaignsAPI.create(formData);
       setSuccess(true);
 
       // Redirection après succès
@@ -46,9 +46,10 @@ export default function CreateCampaignPage() {
         router.push('/campaigns');
       }, 2000);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur création campagne:', error);
-      setError(error.response?.data?.error || 'Erreur lors de la création de la campagne');
+      const err = error as { response?: { data?: { error?: string } } };
+      setError(err.response?.data?.error || 'Erreur lors de la création de la campagne');
     } finally {
       setLoading(false);
     }
@@ -125,7 +126,7 @@ export default function CreateCampaignPage() {
             🎬 Créer une campagne YouTube
           </h1>
           <p className="text-gray-600 text-lg">
-            Lancez votre campagne d'affiliation et générez des vues organiques avec l'aide de nos affiliés.
+            Lancez votre campagne d&apos;affiliation et générez des vues organiques avec l&apos;aide de nos affiliés.
           </p>
         </div>
 
@@ -303,7 +304,7 @@ export default function CreateCampaignPage() {
                   />
                 </div>
                 <p className="text-sm text-gray-600 mt-3">
-                  Cette vidéo sera présentée aux affiliés pour qu'ils la partagent.
+                  Cette vidéo sera présentée aux affiliés pour qu&apos;ils la partagent.
                 </p>
               </div>
             )}
@@ -315,7 +316,7 @@ export default function CreateCampaignPage() {
                 <li>• Les vues sont validées automatiquement après 30 secondes</li>
                 <li>• 100 Ar sont crédités pour votre première vue</li>
                 <li>• Les commissions sont payées automatiquement</li>
-                <li>• La campagne s'arrête automatiquement à l'objectif atteint</li>
+                <li>• La campagne s&apos;arrête automatiquement à l&apos;objectif atteint</li>
               </ul>
             </div>
           </div>
