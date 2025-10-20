@@ -17,7 +17,7 @@ COPY . .
 RUN npx prisma generate
 
 # Attendre que la base de données soit prête et créer les tables
-RUN sleep 10 && npx prisma db push --accept-data-loss
+RUN sleep 15 && npx prisma db push --accept-data-loss --force-reset
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
