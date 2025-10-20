@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const { PrismaClient } = require('@prisma/client');
+const { execSync } = require('child_process');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -36,9 +37,32 @@ app.use(limiter);
 // app.use('/api/clicks', advancedFraudDetection);
 // app.use('/api/views', advancedFraudDetection);
 
-// Test de connexion Prisma
+// Test de connexion Prisma et création des tables si nécessaire
 prisma.$connect()
-  .then(() => console.log('Connecté à PostgreSQL via Prisma'))
+  .then(async () => {
+    console.log('Connecté à PostgreSQL via Prisma');
+
+    // Vérifier si les tables existent, sinon les créer
+    try {
+      await prisma.user.findFirst();
+      console.log('✅ Tables de base de données déjà créées');
+    } catch (error) {
+      if (error.code === 'P2021') {
+        console.log('🔄 Tables manquantes détectées, création en cours...');
+        try {
+          execSync('npx prisma db push --accept-data-loss --force-reset', {
+            stdio: 'inherit',
+            cwd: __dirname
+          });
+          console.log('✅ Tables de base de données créées avec succès');
+        } catch (dbError) {
+          console.error('❌ Erreur lors de la création des tables:', dbError.message);
+        }
+      } else {
+        console.error('Erreur de vérification des tables:', error.message);
+      }
+    }
+  })
   .catch((err) => console.error('Erreur de connexion Prisma:', err));
 
 // Routes API
