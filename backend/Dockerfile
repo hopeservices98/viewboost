@@ -16,6 +16,9 @@ COPY . .
 # Générer le client Prisma
 RUN npx prisma generate
 
+# Exécuter les migrations Prisma
+RUN npx prisma migrate deploy
+
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
 RUN adduser -S nextjs -u 1001
