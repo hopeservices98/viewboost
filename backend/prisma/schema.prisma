@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,172 +7,237 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Modèles pour la plateforme d'affiliation YouTube
-
 model User {
-  id          String   @id @default(cuid())
-  email       String   @unique
-  password    String
-  username    String   @unique
-  role        Role     @default(AFFILIATE) // CREATOR, AFFILIATE, ADMIN
-  balance     Float    @default(0)
-  referredBy  String?  // ID de l'utilisateur qui l'a parrainé
-  lastClickAt DateTime? // Dernier clic pour anti-fraude
-  deviceId    String?   // Fingerprint device pour éviter multi-views
-  level       UserLevel @default(BRONZE) // Système de niveaux
-  totalEarned Float     @default(0) // Total gagné depuis inscription
-  missionsCompleted Int @default(0) // Nombre de missions effectuées
-  phoneNumber String?   // Pour notifications SMS
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id                String                 @id @default(cuid())
+  email             String                 @unique
+  password          String
+  username          String                 @unique
+  role              Role                   @default(AFFILIATE)
+  balance           Float                  @default(0)
+  referredBy        String?
+  lastClickAt       DateTime?
+  deviceId          String?
+  level             UserLevel              @default(BRONZE)
+  totalEarned       Float                  @default(0)
+  missionsCompleted Int                    @default(0)
+  phoneNumber       String?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  affiliateLinks    AffiliateLink[]
+  notifications     CampaignNotification[]
+  campaigns         Campaign[]
+  clicks            Click[]
+  commissions       Commission[]
+  payouts           Payout[]
+  balanceLogs       UserBalanceLog[]
+  missions          UserMission[]
+  referrer          User?                  @relation("UserReferrals", fields: [referredBy], references: [id])
+  referrals         User[]                 @relation("UserReferrals")
+  views             View[]
 
-  // Relations
-  campaigns       Campaign[]
-  affiliateLinks  AffiliateLink[]
-  clicks          Click[]
-  views           View[]
-  commissions     Commission[]
-  payouts         Payout[]
-  balanceLogs     UserBalanceLog[]
-  missions        UserMission[]
-  notifications   CampaignNotification[]
-  referrer        User?         @relation("UserReferrals", fields: [referredBy], references: [id])
-  referrals       User[]        @relation("UserReferrals")
-
+  @@index([deviceId])
+  @@index([level])
+  @@index([referredBy])
   @@map("users")
-  @@index([deviceId]) // Index pour anti-fraude device
-  @@index([level]) // Index pour système de niveaux
-  @@index([referredBy]) // Index pour parrainages
 }
 
 model Campaign {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  youtubeUrl  String
-  videoId     String   // ID de la vidéo YouTube
-  costPerView Float    @default(0.01) // Coût par vue
-  totalViews  Int      @default(0)
-  maxViews    Int      // Objectif de vues obligatoire
-  status      CampaignStatus @default(ACTIVE)
-  userId      String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String                 @id @default(cuid())
+  title          String
+  description    String?
+  youtubeUrl     String
+  videoId        String
+  costPerView    Float                  @default(0.01)
+  totalViews     Int                    @default(0)
+  maxViews       Int
+  status         CampaignStatus         @default(ACTIVE)
+  userId         String
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  affiliateLinks AffiliateLink[]
+  notifications  CampaignNotification[]
+  user           User                   @relation(fields: [userId], references: [id])
+  views          View[]
 
-  // Relations
-  user            User            @relation(fields: [userId], references: [id])
-  affiliateLinks  AffiliateLink[]
-  views           View[]
-  notifications   CampaignNotification[]
-
+  @@index([status])
+  @@index([userId, status])
   @@map("campaigns")
-  @@index([status]) // Index pour filtrage actif/inactif
-  @@index([userId, status]) // Index pour campagnes utilisateur
 }
 
 model AffiliateLink {
   id         String   @id @default(cuid())
-  token      String   @unique // Token unique pour le lien
+  token      String   @unique
   campaignId String
   userId     String
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  campaign   Campaign @relation(fields: [campaignId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+  clicks     Click[]
+  views      View[]
 
-  // Relations
-  campaign Campaign @relation(fields: [campaignId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
-  clicks   Click[]
-  views    View[]
-
+  @@index([token])
+  @@index([userId, campaignId])
   @@map("affiliate_links")
-  @@index([token]) // Index pour recherche rapide des liens
-  @@index([userId, campaignId]) // Index pour requêtes utilisateur/campagne
 }
 
 model Click {
-  id             String   @id @default(cuid())
+  id              String        @id @default(cuid())
   affiliateLinkId String
-  userId         String?
-  ipAddress      String
-  userAgent      String?
-  referrer       String?
-  isValid        Boolean  @default(true)
-  fraudScore     Float    @default(0) // Score de fraude (0-1)
-  createdAt      DateTime @default(now())
+  userId          String?
+  ipAddress       String
+  userAgent       String?
+  referrer        String?
+  isValid         Boolean       @default(true)
+  fraudScore      Float         @default(0)
+  createdAt       DateTime      @default(now())
+  affiliateLink   AffiliateLink @relation(fields: [affiliateLinkId], references: [id])
+  user            User?         @relation(fields: [userId], references: [id])
 
-  // Relations
-  affiliateLink AffiliateLink @relation(fields: [affiliateLinkId], references: [id])
-  user          User?         @relation(fields: [userId], references: [id])
-
+  @@index([affiliateLinkId, createdAt])
+  @@index([ipAddress])
   @@map("clicks")
-  @@index([affiliateLinkId, createdAt]) // Index pour tracking haute fréquence
-  @@index([ipAddress]) // Index pour détection fraude IP
 }
 
 model View {
-  id             String   @id @default(cuid())
+  id              String        @id @default(cuid())
   affiliateLinkId String
-  campaignId     String
-  userId         String?
-  ipAddress      String
-  userAgent      String?
-  watchTime      Int?     // durée minimale pour valider une vue (30s)
-  isValid        Boolean  @default(false) // Validée par cron job ou IA
-  fraudScore     Float    @default(0) // Score calculé par IA (0-1)
-  createdAt      DateTime @default(now())
-  validatedAt    DateTime? // Timestamp validation IA/cron
+  campaignId      String
+  userId          String?
+  ipAddress       String
+  userAgent       String?
+  watchTime       Int?
+  isValid         Boolean       @default(false)
+  fraudScore      Float         @default(0)
+  createdAt       DateTime      @default(now())
+  validatedAt     DateTime?
+  commission      Commission?
+  affiliateLink   AffiliateLink @relation(fields: [affiliateLinkId], references: [id])
+  campaign        Campaign      @relation(fields: [campaignId], references: [id])
+  user            User?         @relation(fields: [userId], references: [id])
 
-  // Relations
-  affiliateLink AffiliateLink @relation(fields: [affiliateLinkId], references: [id])
-  campaign      Campaign      @relation(fields: [campaignId], references: [id])
-  user          User?         @relation(fields: [userId], references: [id])
-  commission    Commission?
-
+  @@index([affiliateLinkId, isValid])
+  @@index([campaignId, createdAt])
+  @@index([ipAddress, createdAt])
+  @@index([userId, createdAt])
   @@map("views")
-  @@index([affiliateLinkId, isValid]) // Index pour validation des vues
-  @@index([campaignId, createdAt]) // Index pour stats campagnes
-  @@index([ipAddress, createdAt]) // Index anti-fraude
-  @@index([userId, createdAt]) // Index pour stats par utilisateur
 }
 
 model Commission {
-  id        String   @id @default(cuid())
+  id        String           @id @default(cuid())
   userId    String
-  viewId    String   @unique // Une commission par vue
+  viewId    String           @unique
   amount    Float
-  level     Int      @default(1) // Niveau 1, 2, 3
+  level     Int              @default(1)
   status    CommissionStatus @default(PENDING)
-  createdAt DateTime @default(now())
+  createdAt DateTime         @default(now())
   paidAt    DateTime?
+  user      User             @relation(fields: [userId], references: [id])
+  view      View             @relation(fields: [viewId], references: [id])
 
-  // Relations
-  user User @relation(fields: [userId], references: [id])
-  view View @relation(fields: [viewId], references: [id])
-
+  @@index([userId, status])
+  @@index([level, status])
+  @@index([userId, level, createdAt])
   @@map("commissions")
-  @@index([userId, status]) // Index pour calculs de balance
-  @@index([level, status]) // Index pour stats niveaux
-  @@index([userId, level, createdAt]) // Index pour calculs rapides multi-niveaux
 }
 
 model Payout {
-  id          String   @id @default(cuid())
+  id          String       @id @default(cuid())
   userId      String
   amount      Float
   method      PayoutMethod
   status      PayoutStatus @default(PENDING)
-  paypalEmail String?  // Pour PayPal
-  bankDetails String?  // Pour virement bancaire
-  createdAt   DateTime @default(now())
+  paypalEmail String?
+  bankDetails String?
+  createdAt   DateTime     @default(now())
   processedAt DateTime?
-
-  // Relations
-  user User @relation(fields: [userId], references: [id])
+  user        User         @relation(fields: [userId], references: [id])
 
   @@map("payouts")
 }
 
-// Enums
+model BlacklistedIP {
+  id        String   @id @default(cuid())
+  ip        String   @unique
+  reason    String?
+  blockedAt DateTime @default(now())
+  blockedBy String?
+
+  @@map("blacklisted_ips")
+}
+
+model RequestLog {
+  id        String   @id @default(cuid())
+  ipAddress String
+  endpoint  String
+  method    String
+  userAgent String?
+  referrer  String?
+  createdAt DateTime @default(now())
+
+  @@index([ipAddress, createdAt])
+  @@index([endpoint, createdAt])
+  @@map("request_logs")
+}
+
+model FraudLog {
+  id        String   @id @default(cuid())
+  ipAddress String
+  score     Float
+  details   Json?
+  endpoint  String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([ipAddress, createdAt])
+  @@index([score])
+  @@map("fraud_logs")
+}
+
+model UserBalanceLog {
+  id          String         @id @default(cuid())
+  userId      String
+  amount      Float
+  type        BalanceLogType
+  description String?
+  createdAt   DateTime       @default(now())
+  user        User           @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@map("user_balance_logs")
+}
+
+model CampaignNotification {
+  id         String           @id @default(cuid())
+  campaignId String
+  userId     String
+  type       NotificationType
+  message    String
+  sentAt     DateTime?
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+  campaign   Campaign         @relation(fields: [campaignId], references: [id])
+  user       User             @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt])
+  @@index([campaignId, createdAt])
+  @@map("campaign_notifications")
+}
+
+model UserMission {
+  id          String        @id @default(cuid())
+  userId      String
+  missionType MissionType
+  status      MissionStatus @default(PENDING)
+  reward      Float
+  completedAt DateTime?
+  createdAt   DateTime      @default(now())
+  user        User          @relation(fields: [userId], references: [id])
+
+  @@index([userId, status])
+  @@map("user_missions")
+}
+
 enum Role {
   CREATOR
   AFFILIATE
@@ -183,11 +245,11 @@ enum Role {
 }
 
 enum UserLevel {
-  BRONZE     // 0-1000 Ar gagnés
-  SILVER     // 1000-5000 Ar gagnés
-  GOLD       // 5000-15000 Ar gagnés
-  PLATINUM   // 15000-50000 Ar gagnés
-  DIAMOND    // 50000+ Ar gagnés
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+  DIAMOND
 }
 
 enum CampaignStatus {
@@ -217,125 +279,33 @@ enum PayoutStatus {
   FAILED
 }
 
-// Tables pour la sécurité anti-fraude
-model BlacklistedIP {
-  id        String   @id @default(cuid())
-  ip        String   @unique
-  reason    String?
-  blockedAt DateTime @default(now())
-  blockedBy String?  // ID admin
-
-  @@map("blacklisted_ips")
-}
-
-model RequestLog {
-  id        String   @id @default(cuid())
-  ipAddress String
-  endpoint  String
-  method    String
-  userAgent String?
-  referrer  String?
-  createdAt DateTime @default(now())
-
-  @@map("request_logs")
-  @@index([ipAddress, createdAt])
-  @@index([endpoint, createdAt])
-}
-
-model FraudLog {
-  id        String   @id @default(cuid())
-  ipAddress String
-  score     Float
-  details   Json?
-  endpoint  String?
-  userAgent String?
-  createdAt DateTime @default(now())
-
-  @@map("fraud_logs")
-  @@index([ipAddress, createdAt])
-  @@index([score])
-}
-
-// Table intermédiaire pour tracking des balances
-model UserBalanceLog {
-  id          String   @id @default(cuid())
-  userId      String
-  amount      Float    // Montant ajouté/retrait
-  type        BalanceLogType // COMMISSION, PAYOUT, BONUS
-  description String?  // Description de l'opération
-  createdAt   DateTime @default(now())
-
-  // Relations
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("user_balance_logs")
-  @@index([userId, createdAt]) // Index pour historique balance
-}
-
 enum BalanceLogType {
   COMMISSION
   PAYOUT
   BONUS
   CORRECTION
-  CREATOR_FIRST_VIEW    // 100 Ar pour première vue créateur
-  REFERRAL_BONUS        // 1000 Ar pour parrainage
-  MISSION_COMPLETED     // Récompense mission
-  LEVEL_UPGRADE         // Bonus montée de niveau
-}
-
-// Table pour les notifications de campagne
-model CampaignNotification {
-  id          String   @id @default(cuid())
-  campaignId  String
-  userId      String   // Affilié notifié
-  type        NotificationType
-  message     String
-  sentAt      DateTime?
-  readAt      DateTime?
-  createdAt   DateTime @default(now())
-
-  // Relations
-  campaign Campaign @relation(fields: [campaignId], references: [id])
-  user     User     @relation(fields: [userId], references: [id])
-
-  @@map("campaign_notifications")
-  @@index([userId, readAt]) // Index pour notifications non lues
-  @@index([campaignId, createdAt]) // Index par campagne
+  CREATOR_FIRST_VIEW
+  REFERRAL_BONUS
+  MISSION_COMPLETED
+  LEVEL_UPGRADE
 }
 
 enum NotificationType {
-  CAMPAIGN_CREATED     // Nouvelle campagne disponible
-  CAMPAIGN_COMPLETED   // Campagne terminée
-  COMMISSION_EARNED    // Commission gagnée
-  PAYOUT_AVAILABLE     // Paiement disponible
-  LEVEL_UPGRADED       // Montée de niveau
-  MISSION_COMPLETED    // Mission accomplie
-}
-
-// Table pour les missions utilisateur
-model UserMission {
-  id          String   @id @default(cuid())
-  userId      String
-  missionType MissionType
-  status      MissionStatus @default(PENDING)
-  reward      Float    // Récompense en Ariary
-  completedAt DateTime?
-  createdAt   DateTime @default(now())
-
-  // Relations
-  user User @relation(fields: [userId], references: [id])
-
-  @@map("user_missions")
-  @@index([userId, status]) // Index pour missions actives
+  CAMPAIGN_CREATED
+  CAMPAIGN_COMPLETED
+  COMMISSION_EARNED
+  PAYOUT_AVAILABLE
+  LEVEL_UPGRADED
+  MISSION_COMPLETED
 }
 
 enum MissionType {
-  CREATE_FIRST_CAMPAIGN    // Créer première campagne
-  GET_FIRST_AFFILIATE      // Obtenir premier affilié
-  EARN_FIRST_COMMISSION    // Gagner première commission
-  REACH_1000_VIEWS         // Atteindre 1000 vues totales
-  REFER_5_USERS           // Parrainer 5 utilisateurs
-  COMPLETE_PROFILE        // Compléter le profil
+  CREATE_FIRST_CAMPAIGN
+  GET_FIRST_AFFILIATE
+  EARN_FIRST_COMMISSION
+  REACH_1000_VIEWS
+  REFER_5_USERS
+  COMPLETE_PROFILE
 }
 
 enum MissionStatus {
