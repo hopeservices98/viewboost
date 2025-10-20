@@ -17,7 +17,7 @@ RUN npm ci --only=production
 COPY . .
 
 # Attendre que la base de données soit prête et créer les tables
-RUN sleep 20 && npm run db:setup
+RUN sleep 20 && npx prisma db push --accept-data-loss --force-reset
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
