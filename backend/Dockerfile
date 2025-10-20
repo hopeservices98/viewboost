@@ -16,8 +16,8 @@ RUN npm ci --only=production
 # Copier le code source
 COPY . .
 
-# Solution finale : supprimer manuellement les tables existantes puis les recréer
-RUN sleep 20 && PGPASSWORD=$DATABASE_URL npx prisma db execute --file=./scripts/reset-db.sql --schema=./prisma/schema.prisma || npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss --force-reset --skip-generate
+# SOLUTION FINALE : ignorer complètement Prisma et créer les tables manuellement
+RUN sleep 20 && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -f ./scripts/setup-db.sql
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
