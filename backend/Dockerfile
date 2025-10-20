@@ -16,8 +16,8 @@ RUN npm ci --only=production
 # Copier le code source
 COPY . .
 
-# Nettoyer complètement la base de données
-RUN sleep 20 && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss --force-reset
+# Supprimer et recréer complètement la base de données
+RUN sleep 20 && npx prisma db push --schema=./prisma/schema.prisma --accept-data-loss --force-reset --skip-generate
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
