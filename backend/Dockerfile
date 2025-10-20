@@ -16,13 +16,16 @@ RUN npm ci --only=production
 # Copier le code source
 COPY . .
 
-# Nettoyer complètement la base de données et recréer les tables
-RUN sleep 10 && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+# SOLUTION RADICALE: Supprimer TOUTES les migrations et utiliser seulement db push
+RUN rm -rf prisma/migrations
+
+# Nettoyer complètement la base de données
+RUN sleep 10 && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO postgres; GRANT ALL ON SCHEMA public TO public;"
 
 # Générer le client Prisma
 RUN npx prisma generate
 
-# Créer les tables depuis le schéma Prisma
+# Créer les tables directement depuis le schéma (pas de migrations)
 RUN npx prisma db push --accept-data-loss --force-reset --skip-generate
 
 # Créer un utilisateur non-root
