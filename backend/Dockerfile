@@ -7,17 +7,17 @@ WORKDIR /app
 # Copier les fichiers de dépendances
 COPY package*.json ./
 
-# Installer les dépendances
+# Copier les fichiers de dépendances
+COPY package*.json ./
+
+# Installer les dépendances (incluant postinstall qui génère Prisma)
 RUN npm ci --only=production
 
 # Copier le code source
 COPY . .
 
-# Générer le client Prisma
-RUN npx prisma generate
-
 # Attendre que la base de données soit prête et créer les tables
-RUN sleep 15 && npx prisma db push --accept-data-loss --force-reset
+RUN sleep 20 && npm run db:setup
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
