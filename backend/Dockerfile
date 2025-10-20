@@ -16,8 +16,8 @@ COPY . .
 # Générer le client Prisma
 RUN npx prisma generate
 
-# Exécuter les migrations Prisma
-RUN npx prisma migrate deploy
+# Créer les tables de base de données
+RUN npx prisma db push --accept-data-loss
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
