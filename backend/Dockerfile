@@ -16,17 +16,11 @@ RUN npm ci --only=production
 # Copier le code source
 COPY . .
 
-# SOLUTION FINALE : Contourner complètement les migrations Prisma
-RUN rm -rf prisma/migrations
-
-# Nettoyer la base de données complètement
-RUN sleep 15 && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+# SOLUTION ULTIME : Créer les tables manuellement via SQL pur
+RUN sleep 15 && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -f ./scripts/setup-db.sql
 
 # Générer le client Prisma
 RUN npx prisma generate
-
-# Créer les tables directement depuis le schéma Prisma
-RUN npx prisma db push --accept-data-loss --force-reset --skip-generate
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
