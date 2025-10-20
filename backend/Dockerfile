@@ -16,8 +16,11 @@ RUN npm ci --only=production
 # Copier le code source
 COPY . .
 
-# SOLUTION FINALE ABSOLUE : créer les tables AVANT que Prisma ne se plaigne
-RUN sleep 20 && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -f ./scripts/setup-db.sql
+# Générer le client Prisma
+RUN npx prisma generate
+
+# Appliquer les migrations Prisma en production
+RUN npx prisma migrate deploy
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
