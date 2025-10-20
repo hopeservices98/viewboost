@@ -16,11 +16,14 @@ RUN npm ci --only=production
 # Copier le code source
 COPY . .
 
+# Nettoyer complètement la base de données et recréer les tables
+RUN sleep 10 && PGPASSWORD=$DATABASE_URL psql $DATABASE_URL -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+
 # Générer le client Prisma
 RUN npx prisma generate
 
-# Appliquer les migrations Prisma en production
-RUN npx prisma migrate deploy
+# Créer les tables depuis le schéma Prisma
+RUN npx prisma db push --accept-data-loss --force-reset --skip-generate
 
 # Créer un utilisateur non-root
 RUN addgroup -g 1001 -S nodejs
